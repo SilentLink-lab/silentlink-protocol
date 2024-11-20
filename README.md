@@ -52,7 +52,7 @@ cd silentlink-protocol
 Запустите сервер:
 
 bash
-Копировать код
+Копировать код  
 python examples/server.py
 В другом терминале запустите клиентский пример:
 
