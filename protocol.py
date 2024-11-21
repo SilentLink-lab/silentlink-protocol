@@ -6,20 +6,40 @@ import json
 
 class Session:
     def __init__(self):
+        """
+        Инициализирует сессию для обмена сообщениями между двумя пользователями.
+        """
+        # Корневой ключ и цепные ключи для Double Ratchet
         self.root_key = None
         self.send_chain_key = None
         self.receive_chain_key = None
+
+        # Диффи-Хеллман ключи
         self.dh_send_private = None
         self.dh_send_public = None
         self.dh_receive_public = None
+
+        # Индексы сообщений
         self.send_message_index = 0
         self.receive_message_index = 0
 
 class Protocol:
     def __init__(self, user):
+        """
+        Инициализирует протокол для пользователя.
+
+        Args:
+            user (User): Объект пользователя.
+        """
         self.user = user
 
     async def initialize_session(self, recipient_username):
+        """
+        Инициализирует сессию с получателем.
+
+        Args:
+            recipient_username (str): Имя пользователя получателя.
+        """
         # Получение информации о получателе
         recipient_info = await self.user.get_recipient_info(recipient_username)
         if recipient_info is None:
@@ -32,13 +52,25 @@ class Protocol:
         ek_pq_private, ek_pq_public = generate_kyber_keypair()
 
         # Сериализация публичных ключей
-        ek_classic_public_bytes = serialize_public_key(ek_classic_public)
+        ek_classic_public_bytes = serialize_x25519_public_key(ek_classic_public)
 
         # Вычисление классических общих секретов
-        dh1_classic = x25519_derive_shared_secret(ek_classic_private, bytes.fromhex(recipient_info['ik_classic_public']))
-        dh2_classic = x25519_derive_shared_secret(ek_classic_private, bytes.fromhex(recipient_info['spk_classic_public']))
-        dh3_classic = x25519_derive_shared_secret(ek_classic_private, bytes.fromhex(recipient_info['opk_classic_public']))
-        dh4_classic = x25519_derive_shared_secret(self.user.ik_classic_private, bytes.fromhex(recipient_info['spk_classic_public']))
+        dh1_classic = x25519_derive_shared_secret(
+            ek_classic_private,
+            bytes.fromhex(recipient_info['ik_classic_public'])
+        )
+        dh2_classic = x25519_derive_shared_secret(
+            ek_classic_private,
+            bytes.fromhex(recipient_info['spk_classic_public'])
+        )
+        dh3_classic = x25519_derive_shared_secret(
+            ek_classic_private,
+            bytes.fromhex(recipient_info['opk_classic_public'])
+        )
+        dh4_classic = x25519_derive_shared_secret(
+            self.user.ik_classic_private,
+            bytes.fromhex(recipient_info['spk_classic_public'])
+        )
 
         # Вычисление постквантовых общих секретов
         # Предполагается, что recipient_info содержит необходимые данные для Kyber
@@ -50,7 +82,10 @@ class Protocol:
         # Комбинирование общих секретов
         master_secret = hkdf_extract_and_expand(
             salt=None,
-            input_key_material=concat(dh1_classic, dh2_classic, dh3_classic, dh4_classic, dh1_pq, dh2_pq, dh3_pq, dh4_pq),
+            input_key_material=concat(
+                dh1_classic, dh2_classic, dh3_classic, dh4_classic,
+                dh1_pq, dh2_pq, dh3_pq, dh4_pq
+            ),
             info=b'SilentLink Master Secret'
         )
 
@@ -63,6 +98,13 @@ class Protocol:
         self.user.sessions[recipient_username] = session
 
     async def send_message(self, recipient_username, plaintext):
+        """
+        Отправляет зашифрованное сообщение получателю.
+
+        Args:
+            recipient_username (str): Имя пользователя получателя.
+            plaintext (bytes): Сообщение для отправки.
+        """
         session = self.user.sessions.get(recipient_username)
         if session is None:
             await self.initialize_session(recipient_username)
@@ -85,7 +127,7 @@ class Protocol:
 
         # Подготовка заголовка
         header = {
-            'dh': serialize_public_key(session.dh_send_public).hex(),
+            'dh': serialize_x25519_public_key(session.dh_send_public).hex(),
             'ratchet_index': session.send_message_index
         }
 
@@ -102,6 +144,16 @@ class Protocol:
         session.send_message_index += 1
 
     async def receive_message(self, sender_username, message):
+        """
+        Принимает и расшифровывает сообщение от отправителя.
+
+        Args:
+            sender_username (str): Имя пользователя отправителя.
+            message (str): Полученное сообщение в формате JSON.
+
+        Returns:
+            bytes: Расшифрованное сообщение.
+        """
         session = self.user.sessions.get(sender_username)
         if session is None:
             await self.initialize_session(sender_username)
@@ -125,6 +177,8 @@ class Protocol:
 
         # Расшифровка сообщения
         padded_plaintext = decrypt(message_key, ciphertext)
+        if padded_plaintext is None:
+            raise Exception("Decryption failed")
 
         # Удаление паддинга
         plaintext = unpad_message(padded_plaintext)
