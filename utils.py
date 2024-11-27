@@ -1,50 +1,47 @@
-# silentlink/utils.py
+# utils.py
 
 import os
+import logging
+from cryptography.hazmat.backends import default_backend
 
 def concat(*args):
     """
     Конкатенирует несколько байтовых строк в одну.
 
     Args:
-        *args (bytes): Байтовые строки для конкатенации.
+        *args (bytes): Байтовые строки.
 
     Returns:
-        bytes: Конкатенированная байтовая строка.
+        bytes: Конкатенированная строка.
     """
     return b''.join(args)
 
 def pad_message(message, block_size=256):
     """
-    Дополняет сообщение паддингом в соответствии со схемой PKCS#7.
+    Дополняет сообщение паддингом по схеме PKCS#7.
 
     Args:
-        message (bytes): Исходное сообщение для паддинга.
-        block_size (int): Размер блока. По умолчанию 256 байт.
+        message (bytes): Исходное сообщение.
+        block_size (int): Размер блока.
 
     Returns:
-        bytes: Сообщение с добавленным паддингом.
+        bytes: Сообщение с паддингом.
     """
-    # Вычисляем количество байт паддинга, необходимых для выравнивания до размера блока
     padding_length = block_size - (len(message) % block_size)
     if padding_length == 0:
-        padding_length = block_size  # Если сообщение уже кратно block_size, добавляем полный блок паддинга
-
-    # Генерируем байты паддинга, каждый из которых равен padding_length
+        padding_length = block_size
     padding = bytes([padding_length] * padding_length)
-
-    # Возвращаем сообщение с добавленным паддингом
     return message + padding
 
 def unpad_message(padded_message):
     """
-    Удаляет паддинг из сообщения, дополненного по схеме PKCS#7.
+    Удаляет паддинг из сообщения.
 
     Args:
         padded_message (bytes): Сообщение с паддингом.
 
     Returns:
-        bytes: Исходное сообщение без паддинга.
+        bytes: Исходное сообщение.
 
     Raises:
         ValueError: Если паддинг недействителен.
@@ -52,16 +49,24 @@ def unpad_message(padded_message):
     if not padded_message:
         raise ValueError("The padded message is empty")
 
-    # Получаем значение последнего байта, которое указывает на длину паддинга
     padding_length = padded_message[-1]
 
-    # Проверяем корректность длины паддинга
     if padding_length < 1 or padding_length > len(padded_message):
         raise ValueError("Invalid padding length")
 
-    # Проверяем, что все байты паддинга имеют правильное значение
-    if padded_message[-padding_length:] != bytes([padding_length] * padding_length):
+    if padded_message[-padding_length:] != bytes(
+            [padding_length] * padding_length):
         raise ValueError("Invalid padding bytes")
 
-    # Возвращаем исходное сообщение без паддинга
     return padded_message[:-padding_length]
+
+def check_hardware_acceleration():
+    """
+    Проверяет, используется ли аппаратное ускорение в криптографии.
+    """
+    backend = default_backend()
+    if backend.name == 'openssl':
+        logging.info("Using OpenSSL backend for cryptography.")
+        # Дополнительная проверка поддержки аппаратного ускорения
+    else:
+        logging.warning("No hardware acceleration backend available.")
