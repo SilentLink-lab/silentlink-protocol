@@ -17,7 +17,7 @@ from cryptography.exceptions import InvalidTag, InvalidSignature
 executor = ThreadPoolExecutor(max_workers=4)
 
 # ==========================
-# Генерация ключей и сериализация
+# Генерация ключей и сериализация.
 # ==========================
 
 def generate_x25519_keypair():
