@@ -1,4 +1,4 @@
-# silentlink/crypto.py
+# crypto.py
 
 from cryptography.hazmat.primitives.asymmetric import x25519
 from cryptography.hazmat.primitives import serialization
@@ -17,6 +17,18 @@ from cryptography.hazmat.primitives import hashes, hmac
 from cryptography.hazmat.primitives.ciphers.aead import ChaCha20Poly1305
 from cryptography.exceptions import InvalidTag, InvalidSignature
 import os
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
+
+# Инициализация ThreadPoolExecutor для асинхронных операций
+executor = ThreadPoolExecutor(max_workers=4)
+
+async def generate_x25519_keypair_async():
+    """
+    Асинхронная генерация пары ключей X25519.
+    """
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(executor, generate_x25519_keypair)
 
 def generate_x25519_keypair():
     """
@@ -34,7 +46,7 @@ def serialize_x25519_public_key(public_key):
     Сериализует публичный ключ X25519 в байты.
 
     Args:
-        public_key (x25519.X25519PublicKey): Публичный ключ для сериализации.
+        public_key (x25519.X25519PublicKey): Публичный ключ.
 
     Returns:
         bytes: Сериализованный публичный ключ.
@@ -71,12 +83,11 @@ def serialize_kyber_public_key(public_key):
     Сериализует публичный ключ Kyber в байты.
 
     Args:
-        public_key (bytes): Публичный ключ для сериализации.
+        public_key (bytes): Публичный ключ.
 
     Returns:
         bytes: Сериализованный публичный ключ.
     """
-    # Публичный ключ Kyber уже является байтовой строкой
     return public_key
 
 def deserialize_kyber_public_key(public_key_bytes):
@@ -89,7 +100,6 @@ def deserialize_kyber_public_key(public_key_bytes):
     Returns:
         bytes: Десериализованный публичный ключ.
     """
-    # Публичный ключ Kyber уже является байтовой строкой
     return public_key_bytes
 
 def generate_dilithium_keypair():
@@ -104,10 +114,10 @@ def generate_dilithium_keypair():
 
 def hkdf_extract_and_expand(salt, input_key_material, info, length=32):
     """
-    Реализует HKDF (Extract and Expand) для вывода ключей.
+    Реализует HKDF для вывода ключей.
 
     Args:
-        salt (bytes): Опциональная соль.
+        salt (bytes): Соль.
         input_key_material (bytes): Входной ключевой материал.
         info (bytes): Контекстная информация.
         length (int): Длина выводимого ключа.
@@ -143,13 +153,13 @@ def encrypt(key, plaintext):
     Шифрует данные с использованием ChaCha20-Poly1305.
 
     Args:
-        key (bytes): 32-байтный ключ для шифрования.
+        key (bytes): 32-байтный ключ.
         plaintext (bytes): Данные для шифрования.
 
     Returns:
         bytes: Нонс, объединенный с шифротекстом.
     """
-    nonce = os.urandom(12)  # 96-битный нонс для ChaCha20-Poly1305
+    nonce = os.urandom(12)  # 96-битный нонс
     aead = ChaCha20Poly1305(key)
     ciphertext = aead.encrypt(nonce, plaintext, None)
     return nonce + ciphertext
@@ -159,11 +169,11 @@ def decrypt(key, ciphertext):
     Расшифровывает данные, зашифрованные с помощью ChaCha20-Poly1305.
 
     Args:
-        key (bytes): 32-байтный ключ для шифрования.
-        ciphertext (bytes): Нонс, объединенный с шифротекстом.
+        key (bytes): 32-байтный ключ.
+        ciphertext (bytes): Нонс и шифротекст.
 
     Returns:
-        bytes: Расшифрованные данные или None, если расшифровка не удалась.
+        bytes: Расшифрованные данные или None.
     """
     nonce = ciphertext[:12]
     ct = ciphertext[12:]
@@ -172,7 +182,6 @@ def decrypt(key, ciphertext):
         plaintext = aead.decrypt(nonce, ct, None)
         return plaintext
     except InvalidTag:
-        # Расшифровка не удалась из-за неверного тега аутентификации
         return None
 
 def generate_hmac(key, data):
@@ -194,7 +203,7 @@ def verify_hmac(key, data, hmac_to_verify):
 
     Args:
         key (bytes): Ключ для HMAC.
-        data (bytes): Данные, для которых был сгенерирован HMAC.
+        data (bytes): Данные.
         hmac_to_verify (bytes): HMAC для проверки.
 
     Returns:
@@ -213,13 +222,14 @@ def x25519_derive_shared_secret(private_key, peer_public_key_bytes):
     Вычисляет общий секрет с помощью X25519.
 
     Args:
-        private_key (x25519.X25519PrivateKey): Приватный ключ отправителя.
-        peer_public_key_bytes (bytes): Публичный ключ получателя в байтах.
+        private_key (x25519.X25519PrivateKey): Приватный ключ.
+        peer_public_key_bytes (bytes): Публичный ключ получателя.
 
     Returns:
-        bytes: Вычисленный общий секрет.
+        bytes: Общий секрет.
     """
-    peer_public_key = x25519.X25519PublicKey.from_public_bytes(peer_public_key_bytes)
+    peer_public_key = x25519.X25519PublicKey.from_public_bytes(
+        peer_public_key_bytes)
     shared_secret = private_key.exchange(peer_public_key)
     return shared_secret
 
@@ -244,7 +254,7 @@ def dilithium_verify_message(public_key, message, signature):
     Args:
         public_key (bytes): Публичный ключ Dilithium.
         message (bytes): Подписанное сообщение.
-        signature (bytes): Подпись для проверки.
+        signature (bytes): Подпись.
 
     Returns:
         bool: True, если подпись корректна, иначе False.
@@ -257,7 +267,7 @@ def dilithium_verify_message(public_key, message, signature):
 
 def kyber_encrypt_message(public_key):
     """
-    Выполняет шифрование с помощью Kyber для обмена секретом.
+    Шифрует сообщение с помощью Kyber.
 
     Args:
         public_key (bytes): Публичный ключ Kyber.
@@ -270,14 +280,14 @@ def kyber_encrypt_message(public_key):
 
 def kyber_decrypt_message(private_key, ciphertext):
     """
-    Выполняет расшифровку Kyber и получает общий секрет.
+    Расшифровывает сообщение с помощью Kyber.
 
     Args:
         private_key (bytes): Приватный ключ Kyber.
-        ciphertext (bytes): Шифротекст для расшифровки.
+        ciphertext (bytes): Шифротекст.
 
     Returns:
-        bytes: Общий секрет или None, если расшифровка не удалась.
+        bytes: Общий секрет или None.
     """
     try:
         shared_secret = kyber_decrypt(private_key, ciphertext)
