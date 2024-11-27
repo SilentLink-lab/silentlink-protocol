@@ -1,60 +1,107 @@
-# silentlink/server.py
+# server.py
 
 import asyncio
-import websockets
 import json
+import websockets
 
 class Server:
     def __init__(self):
         """
         Инициализирует сервер SilentLink.
         """
-        self.users = {}  # Список зарегистрированных пользователей и их публичных ключей
-        self.connected_clients = {}  # Активные соединения
+        self.connected_clients = {}  # {username: websocket}
+        self.user_certificates = {}  # {username: certificate}
+        self.user_devices = {}       # {username: {device_id: device_info}}
 
     async def handler(self, websocket, path):
-        # Ожидаем сообщение регистрации от клиента
-        registration_message = await websocket.recv()
-        reg_data = json.loads(registration_message)
-        username = reg_data['username']
-        self.connected_clients[username] = websocket
+        """
+        Обрабатывает входящие соединения и сообщения.
 
-        # Сохранение публичных ключей пользователя
-        self.users[username] = reg_data['public_keys']
-
+        Args:
+            websocket (WebSocketServerProtocol): Веб-сокет соединение.
+            path (str): Путь запроса.
+        """
         try:
             async for message in websocket:
                 data = json.loads(message)
+                action = data.get('action')
 
-                if data.get('action') == 'get_user_info':
-                    # Обработка запроса информации о пользователе
+                if action == 'register':
+                    username = data['username']
+                    device_id = data['device_id']
+                    certificate = data['certificate']
+
+                    if username not in self.user_devices:
+                        self.user_devices[username] = {}
+
+                    self.user_devices[username][device_id] = {
+                        'certificate': certificate,
+                        'websocket': websocket
+                    }
+                    self.user_certificates[username] = certificate  # Можно хранить по устройствам
+
+                    await websocket.send(json.dumps({'status': 'success'}))
+
+                elif action == 'get_user_info':
                     target_username = data['username']
-                    if target_username in self.users:
+                    if target_username in self.user_certificates:
                         await websocket.send(json.dumps({
                             'status': 'success',
-                            'public_keys': self.users[target_username]
+                            'certificate': self.user_certificates[target_username]
                         }))
                     else:
                         await websocket.send(json.dumps({
                             'status': 'error',
                             'message': 'User not found'
                         }))
-                else:
-                    # Обработка отправки сообщения
-                    recipient = data['recipient']
-                    payload = data['payload']
 
-                    if recipient in self.connected_clients:
-                        recipient_ws = self.connected_clients[recipient]
-                        await recipient_ws.send(json.dumps({
-                            'sender': username,
-                            'payload': payload
+                elif action == 'send_messages':
+                    messages = data.get('messages', [])
+                    for msg in messages:
+                        recipient = msg['recipient']
+                        if recipient in self.user_devices:
+                            for device in self.user_devices[recipient].values():
+                                recipient_websocket = device['websocket']
+                                await recipient_websocket.send(json.dumps({
+                                    'sender': data.get('username'),
+                                    'payload': msg['payload']
+                                }))
+                    await websocket.send(json.dumps({'status': 'success'}))
+
+                elif action == 'list_devices':
+                    username = data['username']
+                    if username in self.user_devices:
+                        devices = list(self.user_devices[username].keys())
+                        await websocket.send(json.dumps({
+                            'status': 'success',
+                            'devices': devices
                         }))
                     else:
-                        # Получатель не в сети
-                        pass  # Можно добавить очередь сообщений для оффлайн-пользователей
-        finally:
-            del self.connected_clients[username]
+                        await websocket.send(json.dumps({
+                            'status': 'error',
+                            'message': 'No devices found'
+                        }))
+
+                elif action == 'remove_device':
+                    username = data['username']
+                    device_id = data['device_id']
+                    if username in self.user_devices and device_id in self.user_devices[username]:
+                        del self.user_devices[username][device_id]
+                        await websocket.send(json.dumps({'status': 'success'}))
+                    else:
+                        await websocket.send(json.dumps({
+                            'status': 'error',
+                            'message': 'Device not found'
+                        }))
+
+                else:
+                    await websocket.send(json.dumps({
+                        'status': 'error',
+                        'message': 'Invalid action'
+                    }))
+
+        except websockets.ConnectionClosed:
+            pass  # Обработка разрыва соединения
 
     def start(self):
         """
@@ -62,5 +109,8 @@ class Server:
         """
         start_server = websockets.serve(self.handler, 'localhost', 8765)
         asyncio.get_event_loop().run_until_complete(start_server)
-        print("Server started on ws://localhost:8765")
         asyncio.get_event_loop().run_forever()
+
+if __name__ == '__main__':
+    server = Server()
+    server.start()
