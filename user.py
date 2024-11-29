@@ -6,6 +6,7 @@ import uuid
 import os
 import logging
 import websockets
+import random
 
 from cryptography.hazmat.primitives.asymmetric import x25519, ed25519
 from cryptography.hazmat.primitives import serialization, hashes
@@ -155,8 +156,9 @@ class User:
                     # Запуск задач прослушивания и отправки сообщений
                     listener_task = asyncio.create_task(self.listen())
                     sender_task = asyncio.create_task(self.send_messages())
+                    dummy_task = asyncio.create_task(self.send_dummy_messages())
 
-                    await asyncio.gather(listener_task, sender_task)
+                    await asyncio.gather(listener_task, sender_task, dummy_task)
             except (websockets.ConnectionClosedError, ConnectionRefusedError):
                 logging.warning("Connection lost. Reconnecting...")
                 await asyncio.sleep(5)
@@ -221,6 +223,28 @@ class User:
             except Exception as e:
                 logging.error(f"Error sending messages: {e}")
                 await asyncio.sleep(1)
+
+    async def send_dummy_messages(self):
+        """
+        Периодически отправляет фиктивные сообщения для обфускации трафика.
+        """
+        while self.keep_running:
+            try:
+                # Ждем случайное время перед отправкой фиктивного сообщения
+                await asyncio.sleep(random.uniform(5, 15))  # Интервал можно настроить
+
+                # Выбираем специального фиктивного получателя
+                dummy_recipient = 'dummy_recipient'
+
+                # Создаем фиктивное сообщение
+                dummy_message = os.urandom(256)  # Случайные данные
+
+                # Отправляем сообщение
+                protocol = Protocol(self)
+                encrypted_message = await protocol.prepare_message(dummy_recipient, dummy_message)
+                await self.message_queue.put(encrypted_message)
+            except Exception as e:
+                logging.error(f"Error sending dummy message: {e}")
 
     async def get_recipient_info(self, recipient_username):
         """
