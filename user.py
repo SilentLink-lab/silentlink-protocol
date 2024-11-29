@@ -8,14 +8,12 @@ import logging
 import websockets
 import random
 
-from cryptography.hazmat.primitives.asymmetric import x25519, ed25519
-from cryptography.hazmat.primitives import serialization, hashes
+from cryptography.hazmat.primitives.asymmetric import ed25519
+from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.kdf.scrypt import Scrypt
 
 from .crypto import (
-    generate_x25519_keypair,
-    serialize_x25519_public_key,
-    x25519_derive_shared_secret,
+    generate_kyber_keypair,
     hkdf_extract_and_expand
 )
 from .protocol import Protocol
@@ -46,11 +44,8 @@ class User:
             format=serialization.PublicFormat.Raw
         )
 
-        # Классические ключи
-        self.ik_classic_private, self.ik_classic_public = generate_x25519_keypair()
-        self.spk_classic_private, self.spk_classic_public = generate_x25519_keypair()
-
-        # Постквантовые ключи (не показаны для краткости)
+        # Kyber ключи
+        self.kyber_private_key, self.kyber_public_key = generate_kyber_keypair()
 
         # Сессии с другими пользователями
         self.sessions = {}
@@ -122,8 +117,7 @@ class User:
         public_keys_data = {
             'username': self.username,
             'device_id': self.device_id,
-            'ik_classic_public': serialize_x25519_public_key(self.ik_classic_public).hex(),
-            'spk_classic_public': serialize_x25519_public_key(self.spk_classic_public).hex(),
+            'kyber_public_key': self.kyber_public_key.hex(),
             'identity_public_key': self.identity_public_key_bytes.hex()
             # Добавьте другие публичные ключи, если необходимо
         }
