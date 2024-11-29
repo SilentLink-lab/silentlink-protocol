@@ -3,5 +3,4 @@ uvicorn
 redis
 aioredis
 cryptography
-websockets
-asyncio
+pykyber
