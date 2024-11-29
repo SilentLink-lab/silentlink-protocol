@@ -53,7 +53,13 @@
 
 ## Установка
 
-**Примечание:** Убедитесь, что у вас установлены все необходимые зависимости, включая `cryptography` и `asyncio`. Если вы планируете использовать постквантовые алгоритмы, установите соответствующие библиотеки, такие как `pqcrypto`.
+## Запуск сервера с использованием Docker Compose
+
+Убедитесь, что у вас установлены Docker и Docker Compose.
+
+```bash
+docker-compose up --build
+
 
 ```bash
 git clone https://github.com/SilentLink-lab/silentlink-protocol.git
