@@ -1,13 +1,39 @@
 # silentlink/__init__.py
 
 """
-SilentLink - Secure and Private Messaging Protocol
+Пакет SilentLink — протокол безопасного обмена сообщениями.
+
+Этот пакет включает модули для реализации клиента, криптографических примитивов и протоколов.
 """
 
-__version__ = '1.0.1'
+from .crypto import (
+    generate_kyber_keypair,
+    kyber_encapsulate,
+    kyber_decapsulate,
+    encrypt,
+    decrypt,
+    hmac_sha256,
+    verify_hmac,
+    hkdf_extract_and_expand
+)
 
-from .crypto import *
-from .protocol import Protocol
+from .protocol import Protocol, Session
 from .user import User
-from .server import Server
-from .utils import *
+from .utils import pad_message, unpad_message
+
+# Определение публичного интерфейса пакета
+__all__ = [
+    'User',
+    'Protocol',
+    'Session',
+    'generate_kyber_keypair',
+    'kyber_encapsulate',
+    'kyber_decapsulate',
+    'encrypt',
+    'decrypt',
+    'hmac_sha256',
+    'verify_hmac',
+    'hkdf_extract_and_expand',
+    'pad_message',
+    'unpad_message'
+]
