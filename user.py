@@ -14,7 +14,6 @@ from cryptography.hazmat.primitives.kdf.scrypt import Scrypt
 
 from .crypto import (
     generate_x25519_keypair,
-    generate_kyber_keypair,
     serialize_x25519_public_key,
     x25519_derive_shared_secret,
     hkdf_extract_and_expand
@@ -147,7 +146,8 @@ class User:
 
         while self.keep_running:
             try:
-                async with websockets.connect(server_uri) as websocket:
+                websocket_uri = f"{server_uri}/ws/{self.username}/{self.device_id}"
+                async with websockets.connect(websocket_uri) as websocket:
                     self.websocket = websocket
 
                     # Регистрация пользователя
@@ -183,6 +183,7 @@ class User:
         data = json.loads(response)
         if data.get('status') != 'success':
             raise Exception("Registration failed")
+        logging.info(f"User {self.username} registered successfully.")
 
     async def listen(self):
         """
@@ -199,6 +200,8 @@ class User:
                     print(f"Received from {sender}: {plaintext.decode()}")
         except websockets.ConnectionClosedError:
             logging.warning("Connection closed by server.")
+        except Exception as e:
+            logging.error(f"Error in listen: {e}")
 
     async def send_messages(self):
         """
@@ -293,6 +296,7 @@ class User:
 
             return public_keys_data
         else:
+            logging.error(f"Failed to get recipient info for {recipient_username}")
             return None
 
     async def send_message(self, recipient_username, plaintext):
@@ -324,6 +328,7 @@ class User:
             devices = data['devices']
             return devices
         else:
+            logging.error(f"Failed to list devices for {self.username}")
             return None
 
     async def remove_device(self, device_id):
@@ -343,4 +348,9 @@ class User:
         }))
         response = await self.websocket.recv()
         data = json.loads(response)
-        return data['status'] == 'success'
+        if data['status'] == 'success':
+            logging.info(f"Device {device_id} removed successfully.")
+            return True
+        else:
+            logging.error(f"Failed to remove device {device_id}")
+            return False
