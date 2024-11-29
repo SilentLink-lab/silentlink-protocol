@@ -59,6 +59,9 @@ class Server:
                     messages = data.get('messages', [])
                     for msg in messages:
                         recipient = msg['recipient']
+                        if recipient == 'dummy_recipient':
+                            # Игнорируем фиктивные сообщения или обрабатываем их особым образом
+                            continue
                         if recipient in self.user_devices:
                             for device in self.user_devices[recipient].values():
                                 recipient_websocket = device['websocket']
