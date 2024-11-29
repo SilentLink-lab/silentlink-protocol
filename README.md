@@ -4,8 +4,11 @@
 Если вы хотите поддержать развитие проекта, вы можете сделать пожертвование на следующие кошельки:
 
 Bitcoin: 1GYpJpKSi1Sn7LXexYfva8Yvu5u7WkwJbo
+
 ETH ERC20: 0x7b6da964518b161ea8b2f1d83f12f99615380984
+
 USDT TRC20: TLLx5Pie2BDkRbDRxTxBa28YTaMgg7uuzr
+
 Dogecoin: DEs46phF9Sa1ReNSD853TzLcg9JkxfWeQL
 
 ## Описание
