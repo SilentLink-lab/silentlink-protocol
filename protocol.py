@@ -117,6 +117,7 @@ class Protocol:
         message_key = hmac_sha256(session.send_chain_key, b'MessageKey')
 
         # Шифрование сообщения
+        original_message_length = len(plaintext)
         padded_plaintext = pad_message(plaintext)
         ciphertext = encrypt(message_key, padded_plaintext)
 
@@ -126,7 +127,8 @@ class Protocol:
         # Подготовка заголовка
         header = {
             'dh': serialize_x25519_public_key(session.dh_send_public).hex(),
-            'message_index': session.send_message_index
+            'message_index': session.send_message_index,
+            'original_length': original_message_length  # Добавлено для обфускации метаданных
         }
 
         session.send_message_index += 1
@@ -164,6 +166,7 @@ class Protocol:
         dh_public_bytes = bytes.fromhex(header['dh'])
         dh_public_key = x25519.X25519PublicKey.from_public_bytes(dh_public_bytes)
         message_index = header['message_index']
+        original_message_length = header.get('original_length')
 
         # Проверка на повторное сообщение
         if message_index in session.received_message_indices:
@@ -208,7 +211,11 @@ class Protocol:
             if padded_plaintext is None:
                 raise Exception("Decryption failed")
 
-            plaintext = unpad_message(padded_plaintext)
+            if original_message_length is not None:
+                plaintext = unpad_message(padded_plaintext, original_message_length)
+            else:
+                plaintext = padded_plaintext.rstrip(b'\x00')
+
         except Exception as e:
             logging.error(f"Error receiving message from {sender_username}: {e}")
             return None
