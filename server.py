@@ -3,7 +3,7 @@
 import json
 import logging
 import asyncio
-from typing import Dict, List
+from typing import Dict
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse
@@ -53,24 +53,17 @@ class ConnectionManager:
         logging.info(f"User {username} connected with device {device_id}")
 
     def disconnect(self, username: str, device_id: str):
-        del self.active_connections[username][device_id]
-        if not self.active_connections[username]:
-            del self.active_connections[username]
-        logging.info(f"User {username} disconnected device {device_id}")
+        if username in self.active_connections:
+            if device_id in self.active_connections[username]:
+                del self.active_connections[username][device_id]
+                logging.info(f"User {username} disconnected device {device_id}")
+            if not self.active_connections[username]:
+                del self.active_connections[username]
 
-    async def send_personal_message(self, message: str, username: str, device_id: str = None):
-        if device_id:
-            websocket = self.active_connections[username].get(device_id)
-            if websocket:
-                await websocket.send_text(message)
-        else:
-            for ws in self.active_connections.get(username, {}).values():
+    async def send_personal_message(self, message: str, username: str):
+        if username in self.active_connections:
+            for ws in self.active_connections[username].values():
                 await ws.send_text(message)
-
-    async def broadcast(self, message: str):
-        for user_connections in self.active_connections.values():
-            for connection in user_connections.values():
-                await connection.send_text(message)
 
 manager = ConnectionManager()
 
@@ -186,14 +179,14 @@ async def start_message_delivery():
     asyncio.create_task(message_delivery_loop())
 
 async def message_delivery_loop():
-    pubsub = await redis.subscribe(*[f"user:{username}:messages" for username in manager.active_connections])
-    channels = pubsub.channels
+    pubsub = await redis.psubscribe('user:*:messages')
+    ch = pubsub[0]
     while True:
         try:
-            message = await redis.get_message(ignore_subscribe_messages=True, timeout=1.0)
-            if message:
-                channel = message['channel'].decode('utf-8')
-                data = json.loads(message['data'])
+            message = await ch.get(encoding='utf-8')
+            if message is not None:
+                data = json.loads(message)
+                channel = ch.pattern.decode('utf-8')
                 recipient_username = channel.split(":")[1]
                 await manager.send_personal_message(
                     json.dumps(data),
