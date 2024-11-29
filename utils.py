@@ -2,7 +2,36 @@
 
 import os
 import logging
-from cryptography.hazmat.backends import default_backend
+
+def pad_message(message, block_size=1024):
+    """
+    Дополняет сообщение случайными данными до фиксированного размера.
+
+    Args:
+        message (bytes): Исходное сообщение.
+        block_size (int): Фиксированный размер блока.
+
+    Returns:
+        bytes: Сообщение с паддингом.
+    """
+    if len(message) > block_size:
+        raise ValueError("Message size exceeds block size")
+    padding_length = block_size - len(message)
+    padding = os.urandom(padding_length)
+    return message + padding
+
+def unpad_message(padded_message, original_message_length):
+    """
+    Удаляет паддинг из сообщения.
+
+    Args:
+        padded_message (bytes): Сообщение с паддингом.
+        original_message_length (int): Оригинальная длина сообщения.
+
+    Returns:
+        bytes: Исходное сообщение.
+    """
+    return padded_message[:original_message_length]
 
 def concat(*args):
     """
@@ -16,57 +45,69 @@ def concat(*args):
     """
     return b''.join(args)
 
-def pad_message(message, block_size=256):
-    """
-    Дополняет сообщение паддингом по схеме PKCS#7.
-
-    Args:
-        message (bytes): Исходное сообщение.
-        block_size (int): Размер блока.
-
-    Returns:
-        bytes: Сообщение с паддингом.
-    """
-    padding_length = block_size - (len(message) % block_size)
-    if padding_length == 0:
-        padding_length = block_size
-    padding = bytes([padding_length] * padding_length)
-    return message + padding
-
-def unpad_message(padded_message):
-    """
-    Удаляет паддинг из сообщения.
-
-    Args:
-        padded_message (bytes): Сообщение с паддингом.
-
-    Returns:
-        bytes: Исходное сообщение.
-
-    Raises:
-        ValueError: Если паддинг недействителен.
-    """
-    if not padded_message:
-        raise ValueError("The padded message is empty")
-
-    padding_length = padded_message[-1]
-
-    if padding_length < 1 or padding_length > len(padded_message):
-        raise ValueError("Invalid padding length")
-
-    if padded_message[-padding_length:] != bytes(
-            [padding_length] * padding_length):
-        raise ValueError("Invalid padding bytes")
-
-    return padded_message[:-padding_length]
-
 def check_hardware_acceleration():
     """
-    Проверяет, используется ли аппаратное ускорение в криптографии.
+    Проверяет, используются ли аппаратные ускорения для криптографии.
+
+    Returns:
+        bool: True, если аппаратное ускорение доступно, иначе False.
     """
-    backend = default_backend()
-    if backend.name == 'openssl':
-        logging.info("Using OpenSSL backend for cryptography.")
-        # Дополнительная проверка поддержки аппаратного ускорения
-    else:
-        logging.warning("No hardware acceleration backend available.")
+    try:
+        # Проверяем наличие аппаратного ускорения для AES-NI
+        from cryptography.hazmat.backends.openssl.backend import backend
+        return backend._lib.Cryptography_HAS_AESNI() == 1
+    except AttributeError:
+        return False
+
+def serialize_public_key(public_key):
+    """
+    Сериализует публичный ключ в строку в формате PEM.
+
+    Args:
+        public_key: Публичный ключ.
+
+    Returns:
+        str: Строка с публичным ключом в формате PEM.
+    """
+    pem = public_key.public_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PublicFormat.SubjectPublicKeyInfo
+    )
+    return pem.decode('utf-8')
+
+def deserialize_public_key(pem_str):
+    """
+    Десериализует публичный ключ из строки в формате PEM.
+
+    Args:
+        pem_str (str): Строка с публичным ключом в формате PEM.
+
+    Returns:
+        Публичный ключ.
+    """
+    pem_bytes = pem_str.encode('utf-8')
+    public_key = serialization.load_pem_public_key(pem_bytes)
+    return public_key
+
+def generate_random_padding(min_length=0, max_length=256):
+    """
+    Генерирует случайный паддинг заданной длины.
+
+    Args:
+        min_length (int): Минимальная длина паддинга.
+        max_length (int): Максимальная длина паддинга.
+
+    Returns:
+        bytes: Случайный паддинг.
+    """
+    padding_length = os.urandom(1)[0] % (max_length - min_length + 1) + min_length
+    return os.urandom(padding_length)
+
+def get_current_timestamp():
+    """
+    Возвращает текущую метку времени.
+
+    Returns:
+        int: Текущее время в секундах с начала эпохи.
+    """
+    return int(time.time())
