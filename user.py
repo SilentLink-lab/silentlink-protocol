@@ -8,7 +8,6 @@ import logging
 import websockets
 import random
 
-from cryptography.hazmat.primitives.asymmetric import ed25519
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.kdf.scrypt import Scrypt
 
@@ -17,6 +16,9 @@ from .crypto import (
     hkdf_extract_and_expand
 )
 from .protocol import Protocol
+from .utils import pad_message, unpad_message
+
+import oqs  # Добавляем импорт oqs для постквантовых подписей
 
 logging.basicConfig(level=logging.INFO)
 
@@ -36,15 +38,14 @@ class User:
         # Генерация ключа для шифрования приватных ключей
         self.encryption_key = self.derive_key_from_password(password)
 
-        # Генерация долговременных ключей подписи (Ed25519)
-        self.identity_private_key = ed25519.Ed25519PrivateKey.generate()
-        self.identity_public_key = self.identity_private_key.public_key()
-        self.identity_public_key_bytes = self.identity_public_key.public_bytes(
-            encoding=serialization.Encoding.Raw,
-            format=serialization.PublicFormat.Raw
-        )
+        # Генерация постквантовых ключей подписи (Dilithium3)
+        sig = oqs.Signature("Dilithium3")
+        public_key, private_key = sig.generate_keypair()
+        self.identity_private_key = private_key
+        self.identity_public_key = public_key
+        self.identity_public_key_bytes = public_key  # Публичный ключ хранится в байтовом формате
 
-        # Kyber ключи
+        # Генерация Kyber ключей для обмена ключами
         self.kyber_private_key, self.kyber_public_key = generate_kyber_keypair()
 
         # Сессии с другими пользователями
@@ -61,12 +62,6 @@ class User:
     def derive_key_from_password(self, password):
         """
         Генерирует ключ для шифрования приватных ключей из пароля пользователя.
-
-        Args:
-            password (str): Пароль пользователя.
-
-        Returns:
-            bytes: Ключ для шифрования.
         """
         salt = os.urandom(16)
         kdf = Scrypt(
@@ -79,50 +74,31 @@ class User:
         key = kdf.derive(password.encode())
         return key
 
-    def encrypt_private_key(self, private_key_bytes):
-        """
-        Шифрует приватный ключ.
-
-        Args:
-            private_key_bytes (bytes): Байтовое представление приватного ключа.
-
-        Returns:
-            bytes: Зашифрованный приватный ключ.
-        """
-        # Реализация шифрования (например, с использованием AES-GCM)
-        # Необходимо добавить соответствующий код
-        pass
-
-    def decrypt_private_key(self, encrypted_private_key_bytes):
-        """
-        Расшифровывает приватный ключ.
-
-        Args:
-            encrypted_private_key_bytes (bytes): Зашифрованный приватный ключ.
-
-        Returns:
-            bytes: Расшифрованный приватный ключ.
-        """
-        # Реализация расшифровки
-        # Необходимо добавить соответствующий код
-        pass
-
     def generate_key_certificate(self):
         """
         Генерирует сертификат публичных ключей с подписью.
 
-        Returns:
-            dict: Сертификат публичных ключей.
+        Сертификат включает:
+        - Публичный ключ Kyber (постквантовый обмен ключами).
+        - Публичный ключ Dilithium (для проверки подписи).
+
+        Подпись делается приватным ключом Dilithium.
         """
         public_keys_data = {
             'username': self.username,
             'device_id': self.device_id,
             'kyber_public_key': self.kyber_public_key.hex(),
             'identity_public_key': self.identity_public_key_bytes.hex()
-            # Добавьте другие публичные ключи, если необходимо
         }
+
         public_keys_json = json.dumps(public_keys_data).encode()
-        signature = self.identity_private_key.sign(public_keys_json)
+
+        # Подпись Dilithium
+        sig = oqs.Signature("Dilithium3")
+        # Используем предварительно сгенерированную пару ключей
+        # private_key = self.identity_private_key (уже есть)
+        signature = sig.sign(self.identity_private_key, public_keys_json)
+
         certificate = {
             'public_keys': public_keys_data,
             'signature': signature.hex()
@@ -132,9 +108,6 @@ class User:
     async def connect(self, server_uri):
         """
         Подключается к серверу и регистрирует пользователя.
-
-        Args:
-            server_uri (str): URI сервера WebSocket.
         """
         self.server_uri = server_uri
 
@@ -204,7 +177,6 @@ class User:
         while self.keep_running:
             messages_to_send = []
             try:
-                # Собираем сообщения в пакет
                 while not self.message_queue.empty():
                     message = await self.message_queue.get()
                     messages_to_send.append(message)
@@ -215,7 +187,6 @@ class User:
                         'messages': messages_to_send
                     }))
 
-                # Ждем перед следующей отправкой
                 await asyncio.sleep(0.1)
             except Exception as e:
                 logging.error(f"Error sending messages: {e}")
@@ -227,16 +198,10 @@ class User:
         """
         while self.keep_running:
             try:
-                # Ждем случайное время перед отправкой фиктивного сообщения
-                await asyncio.sleep(random.uniform(5, 15))  # Интервал можно настроить
-
-                # Выбираем специального фиктивного получателя
+                await asyncio.sleep(random.uniform(5, 15))
                 dummy_recipient = 'dummy_recipient'
+                dummy_message = os.urandom(256)
 
-                # Создаем фиктивное сообщение
-                dummy_message = os.urandom(256)  # Случайные данные
-
-                # Отправляем сообщение
                 protocol = Protocol(self)
                 encrypted_message = await protocol.prepare_message(dummy_recipient, dummy_message)
                 await self.message_queue.put(encrypted_message)
@@ -246,12 +211,7 @@ class User:
     async def get_recipient_info(self, recipient_username):
         """
         Получает и проверяет информацию о получателе.
-
-        Args:
-            recipient_username (str): Имя пользователя получателя.
-
-        Returns:
-            dict: Проверенные публичные ключи получателя.
+        Теперь проверка подписи выполняется с помощью Dilithium.
         """
         await self.websocket.send(json.dumps({
             'action': 'get_user_info',
@@ -266,28 +226,23 @@ class User:
 
             # Восстанавливаем публичный ключ идентификации получателя
             recipient_identity_public_key_bytes = bytes.fromhex(public_keys_data['identity_public_key'])
-            recipient_identity_public_key = ed25519.Ed25519PublicKey.from_public_bytes(recipient_identity_public_key_bytes)
 
-            # Проверяем подпись сертификата
             public_keys_json = json.dumps(public_keys_data).encode()
-            try:
-                recipient_identity_public_key.verify(signature, public_keys_json)
-            except ed25519.InvalidSignature:
+
+            # Проверяем подпись с помощью Dilithium
+            sig = oqs.Signature("Dilithium3")
+            valid = sig.verify(recipient_identity_public_key_bytes, public_keys_json, signature)
+
+            if not valid:
                 raise Exception("Invalid signature on recipient's certificate")
 
             # Проверяем, не изменился ли публичный ключ идентификации
             stored_public_key = self.recipient_identity_public_keys.get(recipient_username)
-            if stored_public_key and stored_public_key.public_bytes(
-                    encoding=serialization.Encoding.Raw,
-                    format=serialization.PublicFormat.Raw
-                ) != recipient_identity_public_key_bytes:
-                # Ключ изменился, уведомляем пользователя
+            if stored_public_key and stored_public_key != recipient_identity_public_key_bytes:
                 print(f"Warning: Identity key for {recipient_username} has changed!")
-                # Можно запросить подтверждение у пользователя
 
             # Сохраняем публичный ключ идентификации получателя
-            self.recipient_identity_public_keys[recipient_username] = recipient_identity_public_key
-
+            self.recipient_identity_public_keys[recipient_username] = recipient_identity_public_key_bytes
             return public_keys_data
         else:
             logging.error(f"Failed to get recipient info for {recipient_username}")
@@ -296,10 +251,6 @@ class User:
     async def send_message(self, recipient_username, plaintext):
         """
         Добавляет сообщение в очередь для отправки.
-
-        Args:
-            recipient_username (str): Имя получателя.
-            plaintext (bytes): Сообщение для отправки.
         """
         protocol = Protocol(self)
         encrypted_message = await protocol.prepare_message(recipient_username, plaintext)
@@ -308,9 +259,6 @@ class User:
     async def list_devices(self):
         """
         Получает список устройств пользователя с сервера.
-
-        Returns:
-            list: Список устройств.
         """
         await self.websocket.send(json.dumps({
             'action': 'list_devices',
@@ -328,12 +276,6 @@ class User:
     async def remove_device(self, device_id):
         """
         Удаляет устройство пользователя.
-
-        Args:
-            device_id (str): Идентификатор устройства.
-
-        Returns:
-            bool: True, если успешно, иначе False.
         """
         await self.websocket.send(json.dumps({
             'action': 'remove_device',
